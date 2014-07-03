@@ -63,15 +63,15 @@ Compiling the code
 
 Open in your favorite text editor the file PaSWAS/definition.h
 Edit these values, outputed by count.py:
-#define NUMBER_SEQUENCES 25
-#define NUMBER_TARGETS 25
-#define X (640) 
-#define Y (1280) 
+ #define NUMBER_SEQUENCES 25
+ #define NUMBER_TARGETS 25
+ #define X (640) 
+ #define Y (1280) 
 
 You can also edit these based on your own data. Make sure that X and Y are multiples of 8.
 
 Set this to filter out low scoring alignments:
-#define MINIMUM_SCORE 200.0
+ #define MINIMUM_SCORE 200.0
 
 Go to PaSWAS/onGPU and run:
 make clean; make
