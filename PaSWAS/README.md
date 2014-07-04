@@ -44,18 +44,18 @@ PaSWAS is capable of reading FASTA files, other formats are not possible. See py
 The sequences need to be ordered by length as well. Sequences longer than max_length will be removed.
 
 Use this to convert your data:
-python ./tools/prepare.py input type max_length output.fasta 
+- python ./tools/prepare.py input type max_length output.fasta 
 
 For example:
-python ./tools/prepare.py ./data/primers.fna fasta 300 /tmp/primers.fa
-python ./tools/prepare.py ./data/454_primers.fna fasta 300 /tmp/454_primers.fa
+- python ./tools/prepare.py ./data/primers.fna fasta 300 /tmp/primers.fa
+- python ./tools/prepare.py ./data/454_primers.fna fasta 300 /tmp/454_primers.fa
 
 You need to set-up the length of the longest sequence in the code and get the super block values. Get these numbers by running:
-python ./tools/count.py [sequences.fasta] [targets.fasta] [mem on gpu]
+- python ./tools/count.py [sequences.fasta] [targets.fasta] [mem on gpu]
 where [mem on gpu] gives the memory on the GPU in megabytes, for example: 512.
 
 For example:
-python ../tools/count.py /tmp/454_primers.fa /tmp/primers.fa 512
+- python ../tools/count.py /tmp/454_primers.fa /tmp/primers.fa 512
 
  
 Compiling the code
@@ -74,7 +74,7 @@ Set this to filter out low scoring alignments:
 - #define MINIMUM_SCORE 200.0
 
 Go to PaSWAS/onGPU and run:
-make clean; make
+- make clean; make
 
 This should end with: 
 'Finished building target: paswas'
@@ -83,7 +83,7 @@ Running the program
 -------------------
 
 The PaSWAS application is located in the onGPU folder. The command line options are:
-./paswas device sequenceFile targetFile superBlocksX superBlocksY
+- ./paswas device sequenceFile targetFile superBlocksX superBlocksY
 
 - device: select the GPU in the system. Starts at 1. Useful when there are more GPUs present.
 - sequenceFile: name of the fasta file 
@@ -91,9 +91,8 @@ The PaSWAS application is located in the onGPU folder. The command line options 
 - superBlocksX, superBlocksY: you need to split up the analysis of the fasta files in 'super blocks'. Memory on the GPU is limited, therefore sending all sequences to the GPU is usually not possible. Use the tools/count.py tool to get numbers on these. See: Preparing your data
 
 Example command line:
-./paswas 1 /tmp/454_primers.fa /tmp/primers.fa 1480 1 > /tmp/hits
+- ./paswas 1 /tmp/454_primers.fa /tmp/primers.fa 1480 1 > /tmp/hits
 
 
  
-
 
