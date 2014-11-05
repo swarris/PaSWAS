@@ -359,7 +359,7 @@ __global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, 
 
 		for (int i=DIAGONAL-1; i >= 0; --i) {
 
-			if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] >= LOWER_LIMIT_SCORE * s_maxima[0] && s_matrix[tIDx][tIDy] >= s_maxPossibleScore[0]) {
+			if ((i == tIDx + tIDy) &&  direction == UPPER_LEFT_DIRECTION && s_matrix[tIDx][tIDy] >= LOWER_LIMIT_SCORE * s_maxima[0] && s_matrix[tIDx][tIDy] >= s_maxPossibleScore[0]) {
 				// found starting point!
 				// reserve index:
 				unsigned int index = atomicAdd(indexIncrement, 1);
