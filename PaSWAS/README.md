@@ -6,7 +6,7 @@ PaSWAS can be used to align DNA, RNA and protein sequences. It runs on any NVIDI
 GPU. The (optional) Python tools require Python 2.7+ and BioPython.
 
 A full python-based application, which is easier to use, can be downloaded from:
-http://code.google.com/p/pypaswas
+https://github.com/swarris/pyPaSWAS
 
 Prerequisites
 -------------
