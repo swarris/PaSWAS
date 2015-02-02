@@ -55,7 +55,7 @@ You need to set-up the length of the longest sequence in the code and get the su
 where [mem on gpu] gives the memory on the GPU in megabytes, for example: 512.
 
 For example:
-- python ../tools/count.py /tmp/454_primers.fa /tmp/primers.fa 512
+- python ./tools/count.py /tmp/454_primers.fa /tmp/primers.fa 512
 
  
 Compiling the code

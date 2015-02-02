@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
 	GlobalMatrix *d_matrix = 0;
 	GlobalMatrix *h_matrix = 0;
 	GlobalMaxima *d_globalMaxima = 0;
+	GlobalMaxima *d_internalMaxima = 0;
 	GlobalMaxima *h_globalMaxima = 0;
 	GlobalDirection *d_globalDirection = 0;
 	GlobalDirection *h_globalDirectionZeroCopy = 0;
@@ -57,6 +58,7 @@ int main(int argc, char **argv) {
 	init(&h_sequences, &h_targets, &d_sequences, &d_targets,
 		&h_matrix, &d_matrix,
 		&h_globalMaxima, &d_globalMaxima,
+		&d_internalMaxima,
 		&d_globalDirection,
 		&h_globalDirectionZeroCopy,
 		&d_globalDirectionZeroCopy,
@@ -168,9 +170,9 @@ int main(int argc, char **argv) {
 			// make sure database-type index is reset:
 			initZeroCopy(&d_indexIncrement);
 			// fill the scorings matrix:
-			calculateScoreHost(d_matrix, d_sequences, d_targets, d_globalMaxima, d_globalDirection);
+			calculateScoreHost(d_matrix, d_sequences, d_targets, d_globalMaxima, d_internalMaxima, d_globalDirection);
 			// create tracebacks and copy information through zero copy to the host:
-			tracebackHost(d_matrix, d_globalMaxima, d_globalDirection, d_globalDirectionZeroCopy, d_indexIncrement, d_startingPointsZeroCopy, d_maxPossibleScoreZeroCopy, j*NUMBER_SEQUENCES);
+			tracebackHost(d_matrix, d_globalMaxima, d_internalMaxima, d_globalDirection, d_globalDirectionZeroCopy, d_indexIncrement, d_startingPointsZeroCopy, d_maxPossibleScoreZeroCopy, j*NUMBER_SEQUENCES);
 			// get number of alignments:
 			unsigned int index[1];
 			cudaMemcpy(index, d_indexIncrement, sizeof(int), cudaMemcpyDeviceToHost);
@@ -187,6 +189,7 @@ int main(int argc, char **argv) {
 	cudaFree(d_targets);
 	cudaFree(d_matrix);
 	cudaFree(d_globalMaxima);
+	cudaFree(d_internalMaxima);
 	cudaFree(d_indexIncrement);
 	cudaFreeHost(h_globalDirectionZeroCopy);
 	cudaFreeHost(h_startingPointsZeroCopy);

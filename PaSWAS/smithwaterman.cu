@@ -17,6 +17,7 @@ void init(char **h_sequences, char **h_targets,
 		char **d_sequences, char **d_targets,
 		GlobalMatrix **h_matrix, GlobalMatrix **d_matrix,
 		GlobalMaxima **h_globalMaxima, GlobalMaxima **d_globalMaxima,
+		GlobalMaxima **d_internalMaxima,
 		GlobalDirection **d_globalDirection,
 		GlobalDirection **h_globalDirectionZeroCopy, GlobalDirection **d_globalDirectionZeroCopy,
 		StartingPoints **h_startingPointsZeroCopy, StartingPoints **d_startingPointsZeroCopy,
@@ -39,6 +40,7 @@ void init(char **h_sequences, char **h_targets,
 		*h_matrix = (GlobalMatrix *) malloc(sizeof(GlobalMatrix));
 
 	cudaMalloc((void**)d_globalMaxima, sizeof(GlobalMaxima));
+	cudaMalloc((void**)d_internalMaxima, sizeof(GlobalMaxima));
 	if (!*h_globalMaxima)
 		*h_globalMaxima = (GlobalMaxima *) malloc(sizeof(GlobalMaxima));
 
@@ -71,7 +73,7 @@ void initZeroCopy(unsigned int **d_indexIncrement){
 
 
 
-void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targets, GlobalMaxima *d_globalMaxima, GlobalDirection *d_globalDirection) {
+void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targets, GlobalMaxima *d_globalMaxima, GlobalMaxima *d_internalMaxima, GlobalDirection *d_globalDirection) {
 	unsigned int maxNumberOfBlocks = min(XdivSHARED_X,YdivSHARED_Y);
 	unsigned int startDecreaseAt = XdivSHARED_X+YdivSHARED_Y - maxNumberOfBlocks;
 	unsigned int numberOfBlocks = 0;
@@ -91,7 +93,7 @@ void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targe
 		dim3 dimGridSW(NUMBER_SEQUENCES,NUMBER_TARGETS*numberOfBlocks , 1);//numberOfBlocks);
 		//printf("%d, %d, %d\n", x,y,numberOfBlocks);
 
-		calculateScore<<<dimGridSW, dimBlock>>>(d_matrix, x, y, numberOfBlocks,  d_sequences, d_targets, d_globalMaxima, d_globalDirection);
+		calculateScore<<<dimGridSW, dimBlock>>>(d_matrix, x, y, numberOfBlocks,  d_sequences, d_targets, d_globalMaxima, d_internalMaxima, d_globalDirection);
 		cudaThreadSynchronize();
 		if (x == XdivSHARED_X - 1)
 			++y;
@@ -114,6 +116,7 @@ __global__ void calculateScore(
 		GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks,
 		char *sequences, char *targets,
 		GlobalMaxima *globalMaxima,
+		GlobalMaxima *internalMaxima,
 		GlobalDirection *globalDirection
 		) {
 	/**
@@ -146,21 +149,6 @@ __global__ void calculateScore(
 	int seqIndex2 = tIDy + bIDy * Y + blocky * SHARED_Y;
 
 
-	/* the next block is to get the maximum value from surrounding blocks. This maximum values is compared to the
-	 * first element in the shared score matrix s_matrix.
-	 */
-	float maxPrev = 0.0;
-	if (!tIDx && !tIDy) {
-		if (blockx && blocky) {
-			maxPrev = max(max(globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky-1], globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky]), globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky-1]);
-		}
-		else if (blockx) {
-			maxPrev = globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky];
-		}
-		else if (blocky) {
-			maxPrev = globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky-1];
-		}
-	}
 	// local scorings variables:
 	float currentScore, ulS, lS, uS;
 	float innerScore = 0.0;
@@ -227,6 +215,23 @@ __global__ void calculateScore(
 		/**** sync barrier ****/
 	__syncthreads();
 
+	/* the next block is to get the maximum value from surrounding blocks. This maximum values is compared to the
+	 * first element in the shared score matrix s_matrix.
+	 */
+	float maxPrev = 0.0;
+	if (tIDx==SHARED_X && tIDy==SHARED_Y) {
+		if (blockx && blocky) {
+			maxPrev = max(max(globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky-1], globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky]), globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky-1]);
+		}
+		else if (blockx) {
+			maxPrev = globalMaxima->blockMaxima[bIDx][bIDy].value[blockx-1][blocky];
+		}
+		else if (blocky) {
+			maxPrev = globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky-1];
+		}
+	}
+
+
 	currentScore = 0.0;
 	//printf("begin!\n");
 
@@ -258,7 +263,7 @@ __global__ void calculateScore(
 		else if (i-1 == tXM1 + tYM1 ){
 				// use this to find max
 			if (i==1) {
-				s_maxima[0][0] = max(maxPrev, currentScore);
+				s_maxima[0][0] = currentScore;//max(maxPrev, currentScore);
 			}
 			else if (!tXM1 && tYM1) {
 				s_maxima[0][tYM1] = max(s_maxima[0][tYM1-1], currentScore);
@@ -278,16 +283,18 @@ __global__ void calculateScore(
 	(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky].value[tXM1][tYM1] = s_matrix[tIDx][tIDy];
 	(*globalDirection).direction[bIDx][bIDy].localDirection[blockx][blocky].value[tXM1][tYM1] = direction;
 
-	if (tIDx==SHARED_X && tIDy==SHARED_Y)
-		globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky] = max(currentScore, max(s_maxima[SHARED_X-2][SHARED_Y-1], s_maxima[SHARED_X-1][SHARED_Y-2]));
-
+	if (tIDx==SHARED_X && tIDy==SHARED_Y) {
+		float maxV = max(currentScore, max(s_maxima[SHARED_X-2][SHARED_Y-1], s_maxima[SHARED_X-1][SHARED_Y-2]));
+		globalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky] = max(maxPrev, maxV);
+		internalMaxima->blockMaxima[bIDx][bIDy].value[blockx][blocky] = maxV;
+	}
 	// wait until all threads have copied their score:
 		/**** sync barrier ****/
 	__syncthreads();
 }
 
 
-void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalDirection *d_globalDirection, GlobalDirection *d_globalDirectionZeroCopy, unsigned int *d_indexIncrement, StartingPoints *d_startingPoints, float *d_maxPossibleScore, int inBlock) {
+void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalMaxima *d_internalMaxima, GlobalDirection *d_globalDirection, GlobalDirection *d_globalDirectionZeroCopy, unsigned int *d_indexIncrement, StartingPoints *d_startingPoints, float *d_maxPossibleScore, int inBlock) {
 	unsigned int maxNumberOfBlocks = min(XdivSHARED_X,YdivSHARED_Y);
 	unsigned int startDecreaseAt = XdivSHARED_X+YdivSHARED_Y - maxNumberOfBlocks;
 	unsigned int numberOfBlocks = 0;
@@ -306,7 +313,7 @@ void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalD
 			numberOfBlocks = maxNumberOfBlocks;
 		dim3 dimGridSW(NUMBER_SEQUENCES,NUMBER_TARGETS*numberOfBlocks , 1);
 //		printf("%d, %d, %d\n", x,y,numberOfBlocks);
-		traceback<<<dimGridSW, dimBlock>>>(d_matrix, x, y, numberOfBlocks, d_globalMaxima, d_globalDirection, d_globalDirectionZeroCopy, d_indexIncrement, d_startingPoints, d_maxPossibleScore, inBlock);
+		traceback<<<dimGridSW, dimBlock>>>(d_matrix, x, y, numberOfBlocks, d_globalMaxima, d_internalMaxima, d_globalDirection, d_globalDirectionZeroCopy, d_indexIncrement, d_startingPoints, d_maxPossibleScore, inBlock);
 		cudaThreadSynchronize();
 		if (y == 0)
 			--x;
@@ -315,7 +322,7 @@ void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalD
 	}
 }
 
-__global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, GlobalMaxima *globalMaxima, GlobalDirection *globalDirection, GlobalDirection *globalDirectionZeroCopy, unsigned int *indexIncrement, StartingPoints *startingPoints, float *maxPossibleScore, int inBlock) {
+__global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, GlobalMaxima *globalMaxima, GlobalMaxima *internalMaxima, GlobalDirection *globalDirection, GlobalDirection *globalDirectionZeroCopy, unsigned int *indexIncrement, StartingPoints *startingPoints, float *maxPossibleScore, int inBlock) {
 	/**
 	 * shared memory block for calculations. It requires
 	 * extra (+1 in both directions) space to hold
@@ -327,6 +334,9 @@ __global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, 
 	 */
 	__shared__ float s_maxima[1];
 	__shared__ float s_maxPossibleScore[1];
+	__shared__ float s_localMaxima[1];
+	__shared__ 	unsigned char inAlignment[1];
+
 
 	// calculate indices:
 	unsigned int yDIVnumSeq = (blockIdx.y/NUMBER_TARGETS);
@@ -342,120 +352,139 @@ __global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, 
 	if (!tIDx && !tIDy) {
 //		printf("%d, %d (%d, %d)\n", bIDx, bIDy, blockx, blocky);
 		s_maxima[0] = globalMaxima->blockMaxima[bIDx][bIDy].value[XdivSHARED_X-1][YdivSHARED_Y-1];
+		s_localMaxima[0] = internalMaxima->blockMaxima[bIDx][bIDy].value[XdivSHARED_X-1][YdivSHARED_Y-1];
 		s_maxPossibleScore[0] = maxPossibleScore[bIDx+inBlock];
+		inAlignment[0] = 0;
 	}
 
 	__syncthreads();
-	if (s_maxima[0]>= MINIMUM_SCORE) { // if the maximum score is below threshold, there is nothing to do
+	if (s_maxima[0]>= MINIMUM_SCORE)  {// if the maximum score is below threshold, there is nothing to do
+	//if (s_maxima[0]>= MINIMUM_SCORE && s_localMaxima[0] >= s_maxPossibleScore[0]) { // if the maximum score is below threshold, there is nothing to do
+	//if (s_maxima[0]>= MINIMUM_SCORE) { // if the maximum score is below threshold, there is nothing to do
 
 		s_matrix[tIDx][tIDy] = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky].value[tIDx][tIDy];
 
 		unsigned char direction = globalDirection->direction[bIDx][bIDy].localDirection[blockx][blocky].value[tIDx][tIDy];
 
-
 		// wait until all elements have been copied to the shared memory block
 		/**** sync barrier ****/
 		__syncthreads();
-
-		for (int i=DIAGONAL-1; i >= 0; --i) {
-
-			if ((i == tIDx + tIDy) &&  direction == UPPER_LEFT_DIRECTION && s_matrix[tIDx][tIDy] >= LOWER_LIMIT_SCORE * s_maxima[0] && s_matrix[tIDx][tIDy] >= s_maxPossibleScore[0]) {
-				// found starting point!
-				// reserve index:
-				unsigned int index = atomicAdd(indexIncrement, 1);
-				// now copy this to host:
-				StartingPoint *start = &(startingPoints->startingPoint[index]);
-				start->sequence = bIDx;
-				start->target = bIDy;
-				start->blockX = blockx;
-				start->blockY = blocky;
-				start->valueX = tIDx;
-				start->valueY = tIDy;
-				start->score = s_matrix[tIDx][tIDy];
-				start->maxScore = s_maxima[0];
-				start->posScore = s_maxPossibleScore[0];
-				//				startingPoints->startingPoint[index] = start;
-				// mark this value:
-				s_matrix[tIDx][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(s_matrix[tIDx][tIDy]));
+		if (!tIDy)
+			for (int i=0; i < SHARED_X; ++i){
+				if (tIDx == i)
+					inAlignment[0] |= s_matrix[tIDx][tIDy] < 0;
 			}
-				//printf("Dir: %d\n", direction);
-			__syncthreads();
-
-			if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == UPPER_LEFT_DIRECTION) {
-				if (tIDx && tIDy){
-					value = s_matrix[tIDx-1][tIDy-1];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						s_matrix[tIDx-1][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
-				}
-				else if (!tIDx && tIDy && blockx) {
-					value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy-1];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
-				}
-				else if (!tIDx && !tIDy && blockx && blocky) {
-					value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky-1].value[SHARED_X-1][SHARED_Y-1];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky-1].value[SHARED_X-1][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
-				}
-				else if (tIDx && !tIDy && blocky) {
-					value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx-1][SHARED_Y-1];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx-1][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
-				}
+		__syncthreads();
+		if (!tIDx)
+			for (int i=0; i < SHARED_Y; ++i){
+				if (tIDy == i)
+					inAlignment[0] |= s_matrix[tIDx][tIDy] < 0;
 			}
-			__syncthreads();
+		__syncthreads();
+		if (!tIDx && !tIDy)
+			inAlignment[0] |= (s_maxima[0]>= MINIMUM_SCORE && s_localMaxima[0] >= s_maxPossibleScore[0]);
+		__syncthreads();
 
-			if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == UPPER_DIRECTION) {
-				if (!tIDy) {
-					if (blocky) {
-						value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx][SHARED_Y-1];
+		if (inAlignment[0]) {
+			for (int i=DIAGONAL-1; i >= 0; --i) {
+
+				if ((i == tIDx + tIDy) &&  direction == UPPER_LEFT_DIRECTION && s_matrix[tIDx][tIDy] >= LOWER_LIMIT_SCORE * s_maxima[0] && s_matrix[tIDx][tIDy] >= s_maxPossibleScore[0]) {
+					// found starting point!
+					// reserve index:
+					unsigned int index = atomicAdd(indexIncrement, 1);
+					// now copy this to host:
+					StartingPoint *start = &(startingPoints->startingPoint[index]);
+					start->sequence = bIDx;
+					start->target = bIDy;
+					start->blockX = blockx;
+					start->blockY = blocky;
+					start->valueX = tIDx;
+					start->valueY = tIDy;
+					start->score = s_matrix[tIDx][tIDy];
+					start->maxScore = s_maxima[0];
+					start->posScore = s_maxPossibleScore[0];
+					//				startingPoints->startingPoint[index] = start;
+					// mark this value:
+					s_matrix[tIDx][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(s_matrix[tIDx][tIDy]));
+				}
+					//printf("Dir: %d\n", direction);
+				__syncthreads();
+
+				if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == UPPER_LEFT_DIRECTION) {
+					if (tIDx && tIDy){
+						value = s_matrix[tIDx-1][tIDy-1];
 						if (value == 0.0)
 							direction = STOP_DIRECTION;
 						else
-							(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+							s_matrix[tIDx-1][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
 					}
-				}
-				else {
-					value = s_matrix[tIDx][tIDy-1];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						s_matrix[tIDx][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
-				}
-			}
-
-			__syncthreads();
-			if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == LEFT_DIRECTION) {
-				if (!tIDx){
-					if (blockx) {
-						value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy];
+					else if (!tIDx && tIDy && blockx) {
+						value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy-1];
 						if (value == 0.0)
 							direction = STOP_DIRECTION;
 						else
-							(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+							(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+					}
+					else if (!tIDx && !tIDy && blockx && blocky) {
+						value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky-1].value[SHARED_X-1][SHARED_Y-1];
+						if (value == 0.0)
+							direction = STOP_DIRECTION;
+						else
+							(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky-1].value[SHARED_X-1][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+					}
+					else if (tIDx && !tIDy && blocky) {
+						value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx-1][SHARED_Y-1];
+						if (value == 0.0)
+							direction = STOP_DIRECTION;
+						else
+							(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx-1][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
 					}
 				}
-				else {
-					value = s_matrix[tIDx-1][tIDy];
-					if (value == 0.0)
-						direction = STOP_DIRECTION;
-					else
-						s_matrix[tIDx-1][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+				__syncthreads();
+
+				if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == UPPER_DIRECTION) {
+					if (!tIDy) {
+						if (blocky) {
+							value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx][SHARED_Y-1];
+							if (value == 0.0)
+								direction = STOP_DIRECTION;
+							else
+								(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky-1].value[tIDx][SHARED_Y-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+						}
+					}
+					else {
+						value = s_matrix[tIDx][tIDy-1];
+						if (value == 0.0)
+							direction = STOP_DIRECTION;
+						else
+							s_matrix[tIDx][tIDy-1] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+					}
 				}
+
+				__syncthreads();
+				if ((i == tIDx + tIDy) && s_matrix[tIDx][tIDy] < 0 && direction == LEFT_DIRECTION) {
+					if (!tIDx){
+						if (blockx) {
+							value = (*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy];
+							if (value == 0.0)
+								direction = STOP_DIRECTION;
+							else
+								(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx-1][blocky].value[SHARED_X-1][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+						}
+					}
+					else {
+						value = s_matrix[tIDx-1][tIDy];
+						if (value == 0.0)
+							direction = STOP_DIRECTION;
+						else
+							s_matrix[tIDx-1][tIDy] = __int_as_float(SIGN_BIT_MASK | __float_as_int(value));
+					}
+				}
+
+				__syncthreads();
+
 			}
-
-			__syncthreads();
-
 		}
-
 		// copy end score to the scorings matrix:
 		if (s_matrix[tIDx][tIDy] < 0) {
 			(*matrix).metaMatrix[bIDx][bIDy].matrix[blockx][blocky].value[tIDx][tIDy] = s_matrix[tIDx][tIDy];

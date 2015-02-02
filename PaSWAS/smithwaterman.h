@@ -30,6 +30,7 @@
 void init(char **h_sequences, char **h_targets, char **d_sequences, char **d_targets,
 	GlobalMatrix **h_matrix, GlobalMatrix **d_matrix,
 	GlobalMaxima **h_globalMaxima, GlobalMaxima **d_globalMaxima,
+	GlobalMaxima **d_internalMaxima,
 	GlobalDirection **d_globalDirection,
 	GlobalDirection **h_globalDirectionZeroCopy, GlobalDirection **d_globalDirectionZeroCopy,
 	StartingPoints **h_startingPointsZeroCopy,
@@ -42,7 +43,7 @@ void init(char **h_sequences, char **h_targets, char **d_sequences, char **d_tar
 void initZeroCopy(unsigned int **d_IndexIncrement);
 
 
-void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targets, GlobalMaxima *d_globalMaxima, GlobalDirection *d_globalDirection);
+void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targets, GlobalMaxima *d_globalMaxima, GlobalMaxima *d_internalMaxima, GlobalDirection *d_globalDirection);
 
 /**
  * The calculateScore function checks the alignment per block. It calculates the score for each cell in
@@ -55,12 +56,12 @@ void calculateScoreHost(GlobalMatrix *d_matrix, char *d_sequences, char *d_targe
  * @seq2     The left sequence in the alignment
  */
 extern "C"
-__global__ void calculateScore(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, char *sequences, char *targets, GlobalMaxima *globalMaxima, GlobalDirection *globalDirection);
+__global__ void calculateScore(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, char *sequences, char *targets, GlobalMaxima *globalMaxima, GlobalMaxima *internalMaxima, GlobalDirection *globalDirection);
 
 
-void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalDirection *d_globalDirection, GlobalDirection *d_globalDirectionZeroCopy, unsigned int *d_indexIncrement, StartingPoints *d_startingPoints, float *d_maxPossibleScore, int inBlock);
+void tracebackHost(GlobalMatrix *d_matrix, GlobalMaxima *d_globalMaxima, GlobalMaxima *d_internalMaxima, GlobalDirection *d_globalDirection, GlobalDirection *d_globalDirectionZeroCopy, unsigned int *d_indexIncrement, StartingPoints *d_startingPoints, float *d_maxPossibleScore, int inBlock);
 extern "C"
-__global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, GlobalMaxima *globalMaxima, GlobalDirection *globalDirection, GlobalDirection *globalDirectionZeroCopy, unsigned int *indexIncrement, StartingPoints *startingPoints, float *maxPossibleScore, int inBlock);
+__global__ void traceback(GlobalMatrix *matrix, unsigned int x, unsigned int y, unsigned int numberOfBlocks, GlobalMaxima *globalMaxima, GlobalMaxima *internalMaxima, GlobalDirection *globalDirection, GlobalDirection *globalDirectionZeroCopy, unsigned int *indexIncrement, StartingPoints *startingPoints, float *maxPossibleScore, int inBlock);
 
 
 void plotAlignments(char *sequences, char *targets, GlobalDirection *globalDirectionZeroCopy, unsigned int index, StartingPoints *startingPoints, int offset, int offsetTarget, char *descSequences, char *descTargets);
