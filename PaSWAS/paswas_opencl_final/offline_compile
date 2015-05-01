@@ -1,0 +1,5 @@
+#!/bin/bash
+IOCL64="../../../cm/shared/package/intel-ocl-sdk/3.2.1/bin/ioc64"
+KERNEL="kernel/smithwaterman_kern.cl"
+
+$IOCL64 -cmd=build -input=$KERNEL -device=cpu -bo="-DARCH=2"

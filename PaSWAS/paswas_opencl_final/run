@@ -1,0 +1,148 @@
+#!/bin/bash
+
+#ARGV
+#$1 - sequence file
+#$2 - target file
+#$3 - Total number of sequences
+#$4 - Total number of targets
+#$5 - Scoringstype to use (DNA_RNA, BASIC and BLOSUM62)
+#$6 - Minimum score
+#$7 - Partitioner (no_partitioner, partitioner_alg_threshold or partitioner_alg2_threshold)
+#$8 - Threshold
+#$9 - Reservation ID
+
+#File location of sequence and target file
+SEQUENCE_FILE="${1}"
+TARGET_FILE="${2}"
+		
+#Total number of sequences and targets in sequence and target file 
+TOTAL_SEQUENCES=${3}
+TOTAL_TARGETS=${4}
+
+#Scoringsmatrix used for alignments
+SCORINGS_MAT="-D${5}"
+
+#Minimum score needed to perform trace back
+MINIMUM_SCORE=${6}
+
+#Type of partitioner to use
+PARTITIONER=${7}
+
+#Variable to coarsen partitioning, when higher the partitioning will be coarser 
+THRESHOLD=${8}
+
+#Reservation id for DAS4
+ID=${9}
+		
+#Type of memory to use (SHARED_MEM or GLOBAL_MEM4)
+MEM_TYPE="GLOBAL_MEM4"
+MEM_TYPE_DEFINE="-D${MEM_TYPE}"
+
+#SHARED_X * SHARED_Y: number of elements computed in a single kernel run
+SHARED_X=8
+SHARED_Y=8
+
+#WORKLOAD_X * WORKLOAD_Y: number of elements computed by a single work-item (only used in conjunction with GLOBAL_MEM4)
+WORKLOAD_X=4
+WORKLOAD_Y=4
+
+#Device vendor (INTEL, AMD_GPU, AMD_CPU or NVIDIA)
+VENDOR="INTEL"
+VENDOR_DEFINE="-D${VENDOR}"
+
+#Zero-copy (NO_ZERO_COPY, NVIDIA_ZERO_COPY or INTEL_ZERO_COPY)
+ZERO_COPY="INTEL_ZERO_COPY"
+ZERO_COPY_DEFINE="-D${ZERO_COPY}"
+		
+#Number of iterations of PaSWAS algorithm
+ITERATIONS=1
+
+#Folder for storing performance information
+PERFORMANCE_FOLDER="performance/"
+		
+#Folder for storing the results
+RESULT_FOLDER="result/"
+
+#Filename of result and performance
+NOW=$(date +"%d_%m_%y_%H_%M_%S")
+
+#Memory available on device
+MEMORY=1460
+
+
+echo ${PARTITIONER}
+echo ${THRESHOLD}
+
+
+cd ../partitioner
+make
+CONF="${PARTITIONER}_opencl.txt"
+#Usage: <sequence.fasta> <target.fasta> <#Sequences in sequence.fasta> <#Targets in target.fasta> <Dimension of block x> <Dimension of block y> <Amount of RAM in (mb)> <nvidia_zero_copy> <global_mem>
+if [ "${PARTITIONER}" == "no_partitioner" ]
+then
+	./${PARTITIONER} ${SEQUENCE_FILE} ${TARGET_FILE} ${TOTAL_SEQUENCES} ${TOTAL_TARGETS} ${SHARED_X} ${SHARED_Y} ${MEMORY} 1 1  > ${CONF}
+else
+	./${PARTITIONER} ${SEQUENCE_FILE} ${TARGET_FILE} ${TOTAL_SEQUENCES} ${TOTAL_TARGETS} ${SHARED_X} ${SHARED_Y} ${MEMORY} 1 1 ${THRESHOLD} > ${CONF}
+fi
+for (( k=0 ;; k++ )); do
+	#<Start_index_sequence>	<End_index_sequence>	<Start_index_target>	<End_index_target> <Sequences in parallel>	<Targets in parallel>	<Superblock_x>	<Superblock_y>	<X>	<Y>
+	read "SINDEX_START${k}" "SINDEX_END${k}" "TINDEX_START${k}" "TINDEX_END${k}" "SEQUENCES${k}" "TARGETS${k}" "SUPERBLOCKX${k}" "SUPERBLOCKY${k}" "X${k}" "Y${k}" || break;
+done < ${CONF}
+echo X0:${X0}
+echo SEQUENCE0:${SEQUENCES0}
+echo Y0:${Y0}
+echo TARGETS0:${TARGETS0}
+RUNS=${k}
+
+rm ${CONF}
+
+cd ../paswas_opencl_final
+pwd
+echo ${PERFORMANCE_FOLDER}
+echo ${RESULT_FOLDER}
+mkdir -p "${PERFORMANCE_FOLDER}"
+mkdir -p "${RESULT_FOLDER}"
+
+	echo RUNS:${RUNS}
+	for (( i=0; i<RUNS; i++ ))	
+	do
+			echo RUN: ${i} of ${RUNS}
+					
+			PATH_RESULT="${RESULT_FOLDER}${THRESHOLD}_${NOW}.txt"
+			PATH_PERFORMANCE="${PERFORMANCE_FOLDER}${THRESHOLD}_${NOW}.dat"
+			
+			SINDEX_START=$((SINDEX_START${i}))
+			SINDEX_END=$((SINDEX_END${i}))
+			TINDEX_START=$((TINDEX_START${i}))
+			TINDEX_END=$((TINDEX_END${i}))
+			NUMBER_SEQUENCES=$((SEQUENCES${i}))
+			NUMBER_TARGETS=$((TARGETS${i}))
+			SUPERBLOCKX=$((SUPERBLOCKX${i}))
+			SUPERBLOCKY=$((SUPERBLOCKY${i}))
+			X=$((X${i}))
+			Y=$((Y${i}))
+			
+			if [ "${NUMBER_SEQUENCES}" -gt 0 ] && [ "${NUMBER_TARGETS}" -gt 0 ] && [ "${SUPERBLOCKX}" -gt 0 ] && [ "${SUPERBLOCKY}" -gt 0 ]
+			then
+				echo SINDEX_START:${SINDEX_START}
+				echo SINDEX_END:${SINDEX_END}
+				echo TINDEX_START:${TINDEX_START}
+				echo TINDEX_END:${TINDEX_END}
+				echo NUMBER_SEQUENCES:${NUMBER_SEQUENCES}
+				echo NUMBER_TARGETS:${NUMBER_TARGETS}
+				echo SUPERBLOCKX:${SUPERBLOCKX}
+				echo SUPERBLOCKY:${SUPERBLOCKY}
+				echo X: ${X}
+				echo Y: ${Y}
+
+				./run_paswas_opencl ${SEQUENCE_FILE} ${TARGET_FILE} ${SUPERBLOCKX} ${SUPERBLOCKY} ${SINDEX_START} ${SINDEX_END} ${TINDEX_START} ${TINDEX_END} ${PATH_PERFORMANCE} ${PATH_RESULT} ${MEM_TYPE_DEFINE} ${SCORINGS_MAT} -DNUMBER_SEQUENCES=${NUMBER_SEQUENCES} -DNUMBER_TARGETS=${NUMBER_TARGETS} -DX=${X} -DY=${Y} -DMINIMUM_SCORE=${MINIMUM_SCORE} -DSHARED_X=${SHARED_X} -DSHARED_Y=${SHARED_Y} -DWORKLOAD_X=${WORKLOAD_X} -DWORKLOAD_Y=${WORKLOAD_Y} -DITERATIONS=${ITERATIONS} ${VENDOR_DEFINE} ${ZERO_COPY_DEFINE} ${ID} 
+				
+			else
+				echo not able to run the alignments from sequences $SINDEX_START ..... $SINDEX_END and $TINDEX_START ..... $TINDEX_END due to memory constraints
+			fi 
+			
+	done
+	cd ../experiments/GPU/
+	module load prun
+	#preserve -c ${6}
+	

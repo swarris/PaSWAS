@@ -1,0 +1,33 @@
+#!/bin/bash
+
+#ARGV
+#$1 - sequence file
+#$2 - target file
+#$3 - number of super blocks for sequence file (ceil((#seqs in file / #seqs to device))
+#$4 - number of super blocks for target file (ceil((#seqs in file / #seqs to device))
+#$5 - sequence_index_start
+#$6 - sequence_index_end
+#$7 - target_index_start
+#$8 - target_index_end
+#$9 - File location to store performance information
+#${10} - File location to store results
+
+#DEFINES
+#${11} - Type of memory to use (SHARED_MEM or GLOBAL_MEM4)
+#${12} - Scoringstype to use (DNA_RNA, BASIC and BLOSUM62)
+#${13} - Number of Sequences on device
+#${14} - Number of Targets on device
+#${15} - Length of largest sequence: X
+#${16} - Length of largest target: Y
+#${17} - Minimum score
+#${18} - Shared_x
+#${19} - Shared_y
+#${20} - Workload_x
+#${21} - Workload_y
+#${22} - Iterations
+#${23} - Vendor (INTEL, AMD_GPU, AMD_CPU or NVIDIA)
+#${24} - Zero-Copy (NO_ZERO_COPY, NVIDIA_ZERO_COPY or INTEL_ZERO_COPY)
+
+make MEM="${11}" SCORE="${12}" NUMBER_SEQUENCES="${13}" NUMBER_TARGETS="${14}" X="${15}" Y="${16}" MINIMUM_SCORE="${17}" SHARED_X="${18}" SHARED_Y="${19}" WORKLOAD_X="${20}" WORKLOAD_Y="${21}" ITERATIONS="${22}" VENDOR="${23}" ZERO_COPY="${24}" 
+./paswas_opencl $1 $2 $3 $4 $5 $6 $7 $8 $9 >> "${10}" 
+make clean
